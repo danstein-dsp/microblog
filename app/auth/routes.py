@@ -5,15 +5,20 @@ from flask_babel import _
 from app import db
 from app.auth import bp
 from app.auth.forms import LoginForm, RegistrationForm, \
-    ResetPasswordRequestForm, ResetPasswordForm
+    ResetPasswordRequestForm, ResetPasswordForm, RegisterRequestForm, \
+    VerifyEmailForm
 from app.models import User
-from app.auth.email import send_password_reset_email
+
+from app.auth.email import send_password_reset_email, send_register_email
 
 
 @bp.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for('main.index'))
+        if user.is_validated():
+            return redirect(url_for('main.index'))
+        else:
+            return redirect(url_for('auth.register_request'))
     form = LoginForm()
     if form.validate_on_submit():
         user = User.query.filter_by(username=form.username.data).first()
@@ -21,6 +26,8 @@ def login():
             flash(_('Invalid username or password'))
             return redirect(url_for('auth.login'))
         login_user(user, remember=form.remember_me.data)
+        if not current_user.is_validated():
+            return redirect(url_for('auth.register_request'))
         next_page = request.args.get('next')
         if not next_page or url_parse(next_page).netloc != '':
             next_page = url_for('main.index')
@@ -32,7 +39,6 @@ def login():
 def logout():
     logout_user()
     return redirect(url_for('main.index'))
-
 
 @bp.route('/register', methods=['GET', 'POST'])
 def register():
@@ -49,6 +55,23 @@ def register():
     return render_template('auth/register.html', title=_('Register'),
                            form=form)
 
+
+@bp.route('/register_request', methods=['GET', 'POST'])
+def register_request():
+    if not current_user.is_authenticated:
+        return redirect(url_for('main.index'))
+    form = RegisterRequestForm()
+    if form.validate_on_submit():
+        user = User.query.filter_by(email=form.email.data).first()
+        if user:
+            send_register_email(user)
+        flash(
+            _('Check your email for the instructions to verify email'))
+        return redirect(url_for('auth.logout'))
+    flash(current_user.email)
+    form.email.data=current_user.email
+    return render_template('auth/register_request.html',
+                        title=_('Email to Register'), form=form)
 
 @bp.route('/reset_password_request', methods=['GET', 'POST'])
 def reset_password_request():

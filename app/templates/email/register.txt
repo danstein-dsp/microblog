@@ -1,0 +1,11 @@
+Dear user,
+
+To verify your email address  for Microblog click on the following link:
+
+{{ url_for('auth.verify_email', token=token, _external=True) }}
+
+If you have not requested to reqister for Microblog simply ignore this message.
+
+Sincerely,
+
+The Microblog Team

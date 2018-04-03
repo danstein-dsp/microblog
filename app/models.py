@@ -1,5 +1,5 @@
 import base64
-from datetime import datetime, timedelta
+from datetime import time, datetime, timedelta
 from hashlib import md5
 import json
 import os
@@ -12,6 +12,8 @@ import redis
 import rq
 from app import db, login
 from app.search import add_to_index, remove_from_index, query_index
+import string
+import random
 
 
 class SearchableMixin(object):
@@ -86,10 +88,15 @@ class User(UserMixin, PaginatedAPIMixin, db.Model):
     username = db.Column(db.String(64), index=True, unique=True)
     email = db.Column(db.String(120), index=True, unique=True)
     password_hash = db.Column(db.String(128))
+    validated= db.Column(db.Boolean,default=False)
+    first_name = db.Column(db.String(20))
+    middle_i = db.Column(db.String(1))
+    last_name = db.Column(db.String(20))
     posts = db.relationship('Post', backref='author', lazy='dynamic')
     about_me = db.Column(db.String(140))
     last_seen = db.Column(db.DateTime, default=datetime.utcnow)
     token = db.Column(db.String(32), index=True, unique=True)
+    usertoken= db.Column(db.String(32), index=True, unique=True)
     token_expiration = db.Column(db.DateTime)
     followed = db.relationship(
         'User', secondary=followers,
@@ -112,6 +119,16 @@ class User(UserMixin, PaginatedAPIMixin, db.Model):
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
+
+    def gen_password(self, size = 10):
+        chars=string.digits + string.ascii_letters
+        return ''.join(random.choice(chars) for _ in range(size))
+
+    def set_validated(self,validated):
+        self.validated = validated
+
+    def is_validated(self):
+        return self.validated
 
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
@@ -146,6 +163,12 @@ class User(UserMixin, PaginatedAPIMixin, db.Model):
             current_app.config['SECRET_KEY'],
             algorithm='HS256').decode('utf-8')
 
+    def get_confirm_email_token(self, expires_in=600):
+        return jwt.encode(
+            {'confirm_email': self.id, 'exp': time() + expires_in},
+            current_app.config['SECRET_KEY'],
+            algorithm='HS256').decode('utf-8')
+
     @staticmethod
     def verify_reset_password_token(token):
         try:
@@ -153,6 +176,16 @@ class User(UserMixin, PaginatedAPIMixin, db.Model):
                             algorithms=['HS256'])['reset_password']
         except:
             return
+        return User.query.get(id)
+
+    @staticmethod
+    def verify_register_token(token):
+        try:
+            id = jwt.decode(token, current_app.config['SECRET_KEY'],
+                            algorithms=['HS256'])['confirm_email']
+        except:
+            return
+
         return User.query.get(id)
 
     def new_messages(self):
@@ -220,6 +253,15 @@ class User(UserMixin, PaginatedAPIMixin, db.Model):
     def revoke_token(self):
         self.token_expiration = datetime.utcnow() - timedelta(seconds=1)
 
+    def get_usertoken(self):
+        if self.usertoken:
+            return self.usertoken
+        self.usertoken = base64.b64encode(os.random(24)).decode('utf-8')
+        db.session.add(self)
+        de.session.commit
+        return self.usertoken
+
+
     @staticmethod
     def check_token(token):
         user = User.query.filter_by(token=token).first()
@@ -244,10 +286,8 @@ class Post(SearchableMixin, db.Model):
     def __repr__(self):
         return '<Post {}>'.format(self.body)
 
-
 db.event.listen(db.session, 'before_commit', Post.before_commit)
 db.event.listen(db.session, 'after_commit', Post.after_commit)
-
 
 class Message(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -269,7 +309,6 @@ class Notification(db.Model):
 
     def get_data(self):
         return json.loads(str(self.payload_json))
-
 
 class Task(db.Model):
     id = db.Column(db.String(36), primary_key=True)

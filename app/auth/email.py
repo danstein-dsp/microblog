@@ -3,6 +3,17 @@ from flask_babel import _
 from app.email import send_email
 
 
+def send_register_email(user):
+    token = user.get_confirm_email_token()
+    send_email(_('[Microblog] confirm email'),
+               sender=current_app.config['ADMINS'][0],
+               recipients=[user.email],
+               text_body=render_template('email/register.txt',
+                                         user=user, token=token),
+               html_body=render_template('email/register.html',
+                                         user=user, token=token))
+
+
 def send_password_reset_email(user):
     token = user.get_reset_password_token()
     send_email(_('[Microblog] Reset Your Password'),
